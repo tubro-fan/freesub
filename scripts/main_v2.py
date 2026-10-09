@@ -102,6 +102,88 @@ SPEED_TEST_URLS = [               # 测速端点多路 (实测部分节点商屏
     "https://speed.cloudflare.com/__down?bytes=" + str(SPEED_TEST_BYTES),
     "https://cachefly.cachefly.net/10mb.test",
 ]
+# 优选域名列表 (来自 vless84.txt 解析)
+PREFERRED_DOMAINS = [
+    "auctions.ihg.com.cn",
+    "bestcf.030101.xyz",
+    "bluehost.com",
+    "cdnjs.com",
+    "cf.090227.xyz",
+    "cf.877774.xyz",
+    "cf.tencentapp.cn",
+    "cfip-avg.stoeaves.us.ci",
+    "china.mfa.gov.ua",
+    "chinwa.cf.090227.xyz",
+    "cloudflare-ech.com",
+    "cloudflare-eth.com",
+    "cloudflare.182682.xyz",
+    "cloudflare.dev",
+    "cloudflare.idc.rocks",
+    "cmcc.877774.xyz",
+    "columbia.edu",
+    "cookiebot.com",
+    "ct.877774.xyz",
+    "cu.877774.xyz",
+    "digitalocean.com",
+    "engage.cloudflareclient.com",
+    "for.edu.sg",
+    "ip.skk.moe",
+    "ln.edu.hk",
+    "m.iyf.tv",
+    "markmonitor.com",
+    "mycareer.verizon.com",
+    "nexusmods.com",
+    "onetrust.com",
+    "openai.com",
+    "pages.dev",
+    "polestar.com",
+    "r2.dev",
+    "ringcentral.com",
+    "saas.sin.fan",
+    "skk.moe",
+    "static.cloudflareinsights.com",
+    "store.epicgames.com",
+    "store.ubi.com",
+    "visa.com",
+    "visit.honeywell.com",
+    "woodsbagot.com",
+    "www.affirm.com",
+    "www.allianz.com",
+    "www.asda.com",
+    "www.broadcom.com",
+    "www.decathlon.com",
+    "www.emerson.com",
+    "www.hongkongairport.com",
+    "www.jimdo.com",
+    "www.leics.police.uk",
+    "www.ntu.edu.sg",
+    "www.ox.ac.uk",
+    "www.police.uk",
+    "www.researchgate.net",
+    "www.shopify.com",
+    "www.tpg.com",
+    "www.udacity.com",
+    "www.wilshire.com",
+    "www.wto.org",
+    "www.zendesk.com",
+    "yg1.ygkkk.dpdns.org",
+    "yg8.ygkkk.dpdns.org",
+]
+# 优选域名集合 (用于 O(1) 快速查找)
+_PREFERRED_DOMAINS_SET = set(PREFERRED_DOMAINS)
+# 优选域名关键词 (用于子域名匹配，如 cdn.cloudflare.com 匹配 cloudflare.com)
+_PREFERRED_DOMAIN_BASES = [
+    "cloudflare.com", "cloudflare.dev", "cloudflare.net", "cloudflareinsights.com",
+    "cloudflareclient.com", "cloudflare-ech.com", "cloudflare-eth.com",
+    "google.com", "googleapis.com", "gstatic.com",
+    "apple.com", "apple.co",
+    "microsoft.com", "microsoft.net", "windows.net",
+    "amazonaws.com", "amazon.com",
+    "digitalocean.com",
+    "github.com", "githubusercontent.com",
+    "shopify.com",
+    "openai.com", "cdnjs.com", "pages.dev", "r2.dev",
+]
 TRACE_URL = "https://www.cloudflare.com/cdn-cgi/trace"      # warp=on 检测套壳节点
 MAX_WORKERS_TEST    = 48            # 同时 sing-box 实测节点数 (Azure 2C7G 实测 24→48 稳定; sing-box 单实例 < 30MB)
 MAX_WORKERS_FETCH   = 8
@@ -282,7 +364,7 @@ RESIDENTIAL_NAME_PATTERNS = [
     # 欧洲
     "deutsche telekom", "telekom deutschland", "vodafone d2", "kabel deutschland",
     "british telecom", "bt broadband", "virgin media", "sky uk", "talktalk",
-    "orange sa", "free SAS".lower(), "sfr", "bouygues", "bbox", "numericable",
+    "orange sa", "free sas", "sfr", "bouygues", "bbox", "numericable",
     "kpn", "ziggo", "t-mobile netherlands", "proximus", "telenet",
     "telefonica", "movistar", "vodafone espana", "jazztel", "orange es",
     "telecom italia", "fastweb home", "iliad italia", "windtre",
@@ -299,7 +381,7 @@ RESIDENTIAL_NAME_PATTERNS = [
     # 拉美 / 土耳其 / 其他
     "claro", "vivo", "tim brasil", "oi internet", "net servicos",
     "turk telekom", "superonline", "ttk", "kablonet", "vodafone net",
-    " kazakhtelecom", "beeline kz", "izatelecom",
+    "kazakhtelecom", "beeline kz", "izatelecom",
     "bigpond", "iinet", "optus", "tpg internet", "aussie broadband",
     "spark nz", "vodafone nz", "2degrees", "orcon", "slingshot",
 ]
@@ -345,6 +427,25 @@ COUNTRY_NAMES = {
 # ══════════════════════════════════════════════════════════════════
 # 工具函数
 # ══════════════════════════════════════════════════════════════════
+
+def _domain_matches_preferred(server: str) -> str:
+    """检查节点服务器域名是否命中优选域名列表，返回命中的域名或空字符串"""
+    if not server:
+        return ""
+    server_lower = server.lower()
+    # 精确匹配
+    if server_lower in _PREFERRED_DOMAINS_SET:
+        return server_lower
+    # 后缀匹配: 如 cdn.cloudflare.com 匹配 cloudflare.com
+    for pd in _PREFERRED_DOMAINS_SET:
+        if server_lower.endswith("." + pd):
+            return pd
+    # 也检查基础域名列表
+    for base in _PREFERRED_DOMAIN_BASES:
+        if server_lower == base or server_lower.endswith("." + base):
+            return base
+    return ""
+
 
 def get_country_flag(country_code: str) -> str:
     if not country_code:
@@ -539,9 +640,9 @@ def setup_environment():
     print(f"[+] GeoLite 数据库就绪: Country={os.path.getsize(country_db)//1024}KB, ASN={os.path.getsize(asn_db)//1024}KB")
 
 
-# ═══════════════════════════════════════════N═══════════════════════
+# ════════════════════════════════════════════════════════════
 # 节点 URI 解析 (全协议 → sing-box outbound JSON)
-# ═══════════════════════════════════════════N═══════════════════════
+# ════════════════════════════════════════════════════════════
 
 def _query_dict(query: str) -> dict:
     return {k: v[0] for k, v in urllib.parse.parse_qs(query, keep_blank_values=True).items()}
@@ -1008,9 +1109,9 @@ def fetch_raw_nodes() -> list:
     return list(nodes)
 
 
-# ═══════════════════════════════════════════N═══════════════════════
+# ════════════════════════════════════════════════════════════
 # 阶段 A: 端口预检 (削减死节点, 避免后面浪费 sing-box 全流程)
-# ═══════════════════════════════════════════N═══════════════════════
+# ════════════════════════════════════════════════════════════
 
 # DoH 域名解析 (Cloudflare): 防 DNS 污染 (本地大陆网络); Actions 上顺带跳过其国内 DNS 限制
 _DNS_CACHE = {}
@@ -1077,9 +1178,9 @@ def prefilter_candidates(candidates: list) -> list:
     return passed + deferred
 
 
-# ═══════════════════════════════════════════N═══════════════════════
+# ════════════════════════════════════════════════════════════
 # 阶段 B: sing-box 真实测活
-# ═══════════════════════════════════════════N═══════════════════════
+# ════════════════════════════════════════════════════════════
 
 def _alloc_socks_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -1377,7 +1478,7 @@ def run_liveness_test(candidates: list) -> list:
     return results  # 保留全部信息, 分类阶段再决定去留
 
 
-# ═══════════════════════════════════════════N═══════════════════════
+# ════════════════════════════════════════════════════════════
 # 阶段 B2: 家宽链式复测 (chain relay retest)
 # ════════════════════════════════════════════════════════════════════
 
@@ -1473,9 +1574,9 @@ def chain_retest(test_results: list) -> list:
     return test_results
 
 
-# ═══════════════════════════════════════════N═══════════════════════
+# ════════════════════════════════════════════════════════════
 # 阶段 C: 出口 IP 批量情报 (ip-api.com 免费 batch) + 离线兜底
-# ═══════════════════════════════════════════N═══════════════════════
+# ════════════════════════════════════════════════════════════
 
 def ip_api_batch_lookup(ip_list: list) -> dict:
     """ip-api.com batch (免费 HTTP, ≤100/req, 15 req/min → 1500 IP/min)"""
@@ -1621,9 +1722,9 @@ def classify_network_type(ip: str, country: str, asn, org: str, ip_api_rec: dict
     return "unknown", 30
 
 
-# ═══════════════════════════════════════════N═══════════════════════
+# ════════════════════════════════════════════════════════════
 # 节点 → 各客户端配置转换
-# ═══════════════════════════════════════════N═══════════════════════
+# ════════════════════════════════════════════════════════════
 
 def outbound_to_clash(node: dict, name: str) -> dict:
     """sing-box outbound → Clash (Meta/mihomo) proxy dict"""
@@ -1924,9 +2025,9 @@ def outbound_to_singbox(node: dict, name: str) -> dict:
     return n
 
 
-# ═══════════════════════════════════════════N═══════════════════════
+# ════════════════════════════════════════════════════════════
 # 分类 + 导出
-# ═══════════════════════════════════════════N═══════════════════════
+# ════════════════════════════════════════════════════════════
 
 def scamalytics_fraud_score(ip: str) -> int:
     """Scamalytics 免费风控评分 (HTML 抓取, subs-check 同款方案)
@@ -2041,6 +2142,7 @@ def classify_and_export(test_results: list):
             "speed_bps": r["speed_bps"],
             "mitm_risk": r["mitm_risk"],
             "is_stalled": r["is_stalled"],
+            "preferred_domain": _domain_matches_preferred(r.get("server", "")),
         })
 
     if country_reader:
@@ -2155,10 +2257,17 @@ def classify_and_export(test_results: list):
         print(f"[*] 极高危节点 (fraud≥90) 剔除: {before_total - len(unique_nodes)} 个")
 
     non_residential = [n for n in unique_nodes if n not in residential]
+    # 优选域名统计
+    pref_count = sum(1 for n in unique_nodes if n.get("preferred_domain"))
+    print(f"[*] 优选域名命中: {pref_count}/{len(unique_nodes)} 个节点")
     print(f"[*] 家宽/移动网络节点: {len(residential)} | 普通(机房/CDN): {len(non_residential)}")
 
-    # 排序: 家宽在前, 延迟升序
-    unique_nodes.sort(key=lambda x: (0 if x in residential else 1, x["latency_ms"]))
+    # 排序: 优选域名优先 > 家宽在前 > 延迟升序
+    unique_nodes.sort(key=lambda x: (
+        0 if x.get("preferred_domain") else 1,  # 优选域名节点优先
+        0 if x in residential else 1,           # 家宽在前
+        x["latency_ms"]                         # 延迟升序
+    ))
     residential.sort(key=lambda x: x["latency_ms"])
     non_residential.sort(key=lambda x: x["latency_ms"])
     # ★ 链式复测双跳失败的家宽 → 降级普通区 (v2rayN 链式场景不可靠)
@@ -2185,10 +2294,13 @@ def make_node_name(item, idx, force_residential=False):
     tag = ""
     if is_res:
         tag = " (家宽)" if item["net_type"] == "residential" else " (移动家宽)"
+    # 优选域名标记
+    pref = item.get("preferred_domain", "")
+    pref_tag = " ★" if pref else ""
     # Scamalytics 风控分: 高风险节点名内标注 (R分数), 低危不标 (保持简洁)
     fraud = item.get("fraud_score", -1)
     risk_tag = f" R{fraud}" if 0 <= fraud < 75 and fraud >= 40 else (" ⚠R" if fraud >= 75 else "")
-    return f"{flag} {cname} {idx:02d}{tag}{risk_tag} - xiaohe"
+    return f"{flag} {cname} {idx:02d}{tag}{pref_tag}{risk_tag} - xiaohe"
 
 
 def export_all(unique_nodes, residential, non_residential):
@@ -2293,9 +2405,9 @@ def export_singbox_json(sb_nodes, filepath):
         json.dump(config, f, indent=2, ensure_ascii=False)
 
 
-# ═══════════════════════════════════════════N═══════════════════════
+# ════════════════════════════════════════════════════════════
 # README 生成
-# ═══════════════════════════════════════════N═══════════════════════
+# ════════════════════════════════════════════════════════════
 
 def update_readme(total_count, res_count):
     repo_name = os.environ.get("GITHUB_REPOSITORY", "hezhanleiok/freesub").strip()
@@ -2451,9 +2563,9 @@ export default {{
     print(f"[+] README.md 更新完毕: 总节点 {total_count}, 家宽 {res_count}")
 
 
-# ═══════════════════════════════════════════N═══════════════════════
+# ════════════════════════════════════════════════════════════
 # 主流程
-# ═══════════════════════════════════════════N═══════════════════════
+# ════════════════════════════════════════════════════════════
 
 def main():
     t_start = time.time()
@@ -2593,6 +2705,8 @@ def main():
         by_country[n["country"]] = by_country.get(n["country"], 0) + 1
     top_c = sorted(by_country.items(), key=lambda x: -x[1])[:10]
     print(f"国家 Top10: {top_c}")
+    pref_total = sum(1 for n in unique_nodes if n.get("preferred_domain"))
+    print(f"优选域名节点: {pref_total}/{len(unique_nodes)}")
 
 
 if __name__ == "__main__":
